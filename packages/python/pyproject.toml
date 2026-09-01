@@ -1,5 +1,5 @@
 [project]
-name = "kotoba-x402"
+name = "com-kotobalabs-x402"
 version = "0.1.0"
 description = "x402 client: read the 402, pay, retry. Holds no key — the signer is injected."
 readme = "README.md"

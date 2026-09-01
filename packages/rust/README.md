@@ -10,14 +10,16 @@ hide it but to get the four details right that are easy to get wrong.
 | package | install | tests |
 |---|---|---|
 | [`packages/go`](packages/go) | `go get github.com/kotoba-lang/x402-sdk/packages/go` | `go test ./...` — 12 |
-| [`packages/typescript`](packages/typescript) — `kotoba-x402` | `npm i kotoba-x402` once published | `npm test` — 13 |
-| [`packages/python`](packages/python) — `kotoba-x402` | `pip install kotoba-x402` once published | `python -m unittest discover -s tests` — 16 |
-| [`packages/rust`](packages/rust) — `kotoba-x402` | `cargo add kotoba-x402` | `cargo test` — 11 |
+| [`packages/typescript`](packages/typescript) — `@com-kotobalabs/x402` | `npm i @com-kotobalabs/x402` | | `npm test` — 13 |
+| [`packages/python`](packages/python) — `com-kotobalabs-x402` | `pip install com-kotobalabs-x402` once published | | `python -m unittest discover -s tests` — 16 |
+| [`packages/rust`](packages/rust) — `com-kotobalabs-x402` | `cargo add com-kotobalabs-x402` once published | `cargo test` — 11 |
 
-One name on all four registries: `kotoba-x402`. `x402-sdk`, `x402` and
-`x402-client` were already taken across crates.io, npm and PyPI, and the
-unscoped form needs no npm organisation to exist first. The name says whose it
-is, which is more useful than a generic one anyway.
+Published under the `com-kotobalabs` organisation. `x402-sdk`, `x402` and
+`x402-client` were already taken across crates.io, npm and PyPI — checked
+before publishing rather than after a rejected upload — and the reverse-DNS
+form says whose it is, which is more useful than a generic name anyway. npm
+carries it as a scope; PyPI and crates.io have none, so they carry it as a
+prefix.
 
 Go and Rust install by name today. Go modules are fetched from the repository, so
 a tag publishes them; npm and PyPI need a token created through a web login, and saying `npm i`
@@ -36,7 +38,7 @@ c = challenge("https://x402.nexus/gateway/hanmoto/x402/counts")
 ```
 
 ```ts
-import { challenge } from "kotoba-x402";
+import { challenge } from "@com-kotobalabs/x402";
 const c = await challenge("https://x402.nexus/gateway/hanmoto/x402/counts");
 ```
 
