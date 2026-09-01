@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use x402_sdk::*;
+use kotoba_x402::*;
 
 fn policy() -> Policy {
     Policy {

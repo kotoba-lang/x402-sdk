@@ -10,13 +10,14 @@ hide it but to get the four details right that are easy to get wrong.
 | package | install | tests |
 |---|---|---|
 | [`packages/go`](packages/go) | `go get github.com/kotoba-lang/x402-sdk/packages/go` | `go test ./...` — 12 |
-| [`packages/typescript`](packages/typescript) — `@kotoba-lang/x402` | from git until published | `npm test` — 13 |
-| [`packages/python`](packages/python) — `x402-sdk` | from git until published | `python -m unittest discover -s tests` — 16 |
+| [`packages/typescript`](packages/typescript) — `kotoba-x402` | `npm i kotoba-x402` once published | `npm test` — 13 |
+| [`packages/python`](packages/python) — `kotoba-x402` | `pip install kotoba-x402` once published | `python -m unittest discover -s tests` — 16 |
 | [`packages/rust`](packages/rust) — `kotoba-x402` | `cargo add kotoba-x402` | `cargo test` — 11 |
 
-`x402-sdk` and `x402` were both already taken on crates.io, so the crate is
-`kotoba-x402`. The name says whose it is, which is more useful than a generic
-one anyway.
+One name on all four registries: `kotoba-x402`. `x402-sdk`, `x402` and
+`x402-client` were already taken across crates.io, npm and PyPI, and the
+unscoped form needs no npm organisation to exist first. The name says whose it
+is, which is more useful than a generic one anyway.
 
 Go and Rust install by name today. Go modules are fetched from the repository, so
 a tag publishes them; npm and PyPI need a token created through a web login, and saying `npm i`
@@ -35,7 +36,7 @@ c = challenge("https://x402.nexus/gateway/hanmoto/x402/counts")
 ```
 
 ```ts
-import { challenge } from "@kotoba-lang/x402";
+import { challenge } from "kotoba-x402";
 const c = await challenge("https://x402.nexus/gateway/hanmoto/x402/counts");
 ```
 
