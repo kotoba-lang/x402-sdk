@@ -9,8 +9,19 @@ hide it but to get the four details right that are easy to get wrong.
 
 | package | install | tests |
 |---|---|---|
-| [`packages/typescript`](packages/typescript) — `@kotoba-lang/x402` | `npm i @kotoba-lang/x402` | `npm test` |
-| [`packages/python`](packages/python) — `x402-sdk` | `pip install x402-sdk` | `python -m unittest discover -s tests` |
+| [`packages/go`](packages/go) | `go get github.com/kotoba-lang/x402-sdk/packages/go` | `go test ./...` — 12 |
+| [`packages/typescript`](packages/typescript) — `@kotoba-lang/x402` | from git until published | `npm test` — 13 |
+| [`packages/python`](packages/python) — `x402-sdk` | from git until published | `python -m unittest discover -s tests` — 16 |
+| [`packages/rust`](packages/rust) — `kotoba-x402` | `cargo add kotoba-x402` | `cargo test` — 11 |
+
+`x402-sdk` and `x402` were both already taken on crates.io, so the crate is
+`kotoba-x402`. The name says whose it is, which is more useful than a generic
+one anyway.
+
+Go and Rust install by name today. Go modules are fetched from the repository, so
+a tag publishes them; npm and PyPI need a token created through a web login, and saying `npm i`
+works before anyone has pushed would be a claim about a registry rather than
+about this code.
 
 The contract both implement is [`spec/wire.md`](spec/wire.md), transcribed from
 the facilitator that actually runs rather than from a document it might have
@@ -32,6 +43,11 @@ No key, no payment, no side effect. `c.accepts` states every acceptable
 payment completely — price, token, network, recipient, and the EIP-712 domain
 to sign under.
 
+```go
+import x402 "github.com/kotoba-lang/x402-sdk/packages/go"
+c, _ := (&x402.Client{}).Challenge("https://x402.nexus/gateway/hanmoto/x402/counts")
+```
+
 ## Paying
 
 ```ts
@@ -48,7 +64,7 @@ authorization and pay the gas, so a buyer holding only USDC can pay.
 
 ## Four things these libraries insist on
 
-**The signer is injected.** These packages hold no key, sign nothing, and have
+**The signer is injected** (and in Rust, the HTTP transport too). These packages hold no key, sign nothing, and have
 no cryptography dependency. Your wallet stays wherever you put it — viem,
 ethers, eth-account, a hardware device, a remote signer. A payment library
 that wants your key is a place your key can leak from.

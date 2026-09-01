@@ -1,5 +1,5 @@
 [package]
-name = "x402-sdk"
+name = "kotoba-x402"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"

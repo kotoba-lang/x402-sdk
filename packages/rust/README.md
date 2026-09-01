@@ -12,12 +12,16 @@ hide it but to get the four details right that are easy to get wrong.
 | [`packages/go`](packages/go) | `go get github.com/kotoba-lang/x402-sdk/packages/go` | `go test ./...` — 12 |
 | [`packages/typescript`](packages/typescript) — `@kotoba-lang/x402` | from git until published | `npm test` — 13 |
 | [`packages/python`](packages/python) — `x402-sdk` | from git until published | `python -m unittest discover -s tests` — 16 |
-| [`packages/rust`](packages/rust) — `x402-sdk` | from git until published | `cargo test` — 11 |
+| [`packages/rust`](packages/rust) — `kotoba-x402` | `cargo add kotoba-x402` | `cargo test` — 11 |
 
-Only Go installs by name today. Go modules are fetched from the repository, so
-a tag publishes them; npm, PyPI and crates.io need an account to push to, and
-saying `npm i` works before anyone has pushed would be a claim about a registry
-rather than about this code.
+`x402-sdk` and `x402` were both already taken on crates.io, so the crate is
+`kotoba-x402`. The name says whose it is, which is more useful than a generic
+one anyway.
+
+Go and Rust install by name today. Go modules are fetched from the repository, so
+a tag publishes them; npm and PyPI need a token created through a web login, and saying `npm i`
+works before anyone has pushed would be a claim about a registry rather than
+about this code.
 
 The contract both implement is [`spec/wire.md`](spec/wire.md), transcribed from
 the facilitator that actually runs rather than from a document it might have
