@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   selectOffer, chainIdFor, encodePaymentHeader, buildAuthorization,
-  parseChallenge, fetchWithPayment,
+  parseChallenge, fetchWithPayment, PaidOutputRejectedError,
 } from "../dist/index.js";
 
 const policy = {
@@ -116,4 +116,266 @@ test("challenge() returns null for an ungated resource, and terms for a gated on
   const c = await challenge("https://x/y", undefined,
     async () => new Response(JSON.stringify({ x402Version: 1, accepts: [offer()] }), { status: 402 }));
   assert.equal(c.accepts.length, 1);
+});
+
+test("RESIDUAL on main: invalid paid output is returned with no validation seam", async () => {
+  const challengeBody = { x402Version: 1, accepts: [offer()] };
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls++;
+    if (calls === 1) return new Response(JSON.stringify(challengeBody), { status: 402 });
+    return new Response(JSON.stringify({ wrong: true }), { status: 200 });
+  };
+  const res = await fetchWithPayment("https://x/y", undefined, {
+    policy, fetchImpl,
+    signer: { address: "0xdeadbeef", signTransferWithAuthorization: async () => "0xsig" },
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { wrong: true });
+  assert.equal(calls, 2);
+});
+
+test("validatePaidOutput accepts valid paid output", async () => {
+  const challengeBody = { x402Version: 1, accepts: [offer()] };
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls++;
+    if (calls === 1) return new Response(JSON.stringify(challengeBody), { status: 402 });
+    return new Response(JSON.stringify({ value: 42 }), { status: 200 });
+  };
+  const res = await fetchWithPayment("https://x/y", undefined, {
+    policy, fetchImpl,
+    signer: { address: "0xdeadbeef", signTransferWithAuthorization: async () => "0xsig" },
+    validatePaidOutput: (view) => {
+      const data = view.json();
+      if (typeof data?.value !== "number") throw new Error("missing value");
+    },
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { value: 42 });
+  assert.equal(calls, 2);
+});
+
+test("validatePaidOutput rejects malformed output without retry or extra payment", async () => {
+  const challengeBody = { x402Version: 1, accepts: [offer()] };
+  let calls = 0;
+  let paidResponse;
+  const fetchImpl = async () => {
+    calls++;
+    if (calls === 1) return new Response(JSON.stringify(challengeBody), { status: 402 });
+    paidResponse = new Response("not-json", { status: 200 });
+    return paidResponse;
+  };
+  await assert.rejects(
+    fetchWithPayment("https://x/y", undefined, {
+      policy, fetchImpl,
+      signer: { address: "0xdeadbeef", signTransferWithAuthorization: async () => "0xsig" },
+      validatePaidOutput: (view) => { view.json(); },
+    }),
+    (err) => {
+      assert.ok(err instanceof PaidOutputRejectedError);
+      assert.equal(calls, 2);
+      assert.equal(err.response, paidResponse);
+      assert.equal(err.attemptEvidence.signature, "0xsig");
+      assert.equal(err.attemptEvidence.scheme, "exact");
+      return true;
+    },
+  );
+});
+
+test("validatePaidOutput preserves attempt evidence and response when validator mutates the view", async () => {
+  const challengeBody = { x402Version: 1, accepts: [offer()] };
+  let paidResponse;
+  const fetchImpl = async (_u, init) => {
+    if (!init?.headers?.get?.("X-PAYMENT")) {
+      return new Response(JSON.stringify(challengeBody), { status: 402 });
+    }
+    paidResponse = new Response(JSON.stringify({ ok: true }), { status: 200 });
+    return paidResponse;
+  };
+  let err;
+  try {
+    await fetchWithPayment("https://x/y", undefined, {
+      policy, fetchImpl,
+      signer: { address: "0xdeadbeef", signTransferWithAuthorization: async () => "0xsig" },
+      validatePaidOutput: (view) => {
+        view.body[0] = 0x7b;
+        throw new Error("hostile");
+      },
+    });
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err instanceof PaidOutputRejectedError);
+  assert.equal(err.response, paidResponse);
+  assert.equal(await err.response.text(), '{"ok":true}');
+  assert.equal(err.attemptEvidence.signature, "0xsig");
+});
+
+test("payment attempt evidence preserves all extra fields detached, deeply immutable, and hostile-safe", async () => {
+  const extraFromChallenge = JSON.parse(
+    '{"name":"USDC","version":"2","sellerTag":"alpha","nested":{"depth":1,"tags":["a","b"]},"__proto__":{"polluted":true}}',
+  );
+  const pickedOffer = offer({ extra: extraFromChallenge });
+  const challengeBody = { x402Version: 1, accepts: [pickedOffer] };
+  const originalExtra = challengeBody.accepts[0].extra;
+  const fetchImpl = async (_u, init) => {
+    if (!init?.headers?.get?.("X-PAYMENT")) {
+      return new Response(JSON.stringify(challengeBody), { status: 402 });
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  let err;
+  try {
+    await fetchWithPayment("https://x/y", undefined, {
+      policy, fetchImpl,
+      signer: { address: "0xdeadbeef", signTransferWithAuthorization: async () => "0xsig" },
+      validatePaidOutput: (view) => {
+        view.attemptEvidence.offer.extra.name = "tampered";
+        view.attemptEvidence.offer.extra.sellerTag = "tampered";
+        view.attemptEvidence.offer.extra.nested.depth = 9;
+        view.attemptEvidence.offer.extra.nested.tags[0] = "z";
+        view.attemptEvidence.offer.extra["__proto__"] = { polluted: false };
+        throw new Error("hostile extra");
+      },
+    });
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err instanceof PaidOutputRejectedError);
+  assert.notEqual(err.attemptEvidence.offer.extra, originalExtra);
+  assert.equal(
+    JSON.stringify(err.attemptEvidence.offer.extra),
+    '{"name":"USDC","version":"2","sellerTag":"alpha","nested":{"depth":1,"tags":["a","b"]},"__proto__":{"polluted":true}}',
+  );
+  assert.equal(err.attemptEvidence.offer.extra["__proto__"].polluted, true);
+  assert.equal(originalExtra.sellerTag, "alpha");
+  assert.equal(originalExtra.nested.depth, 1);
+  assert.equal(originalExtra.nested.tags[0], "a");
+  assert.equal(Object.prototype.polluted, undefined);
+  assert.throws(() => {
+    err.attemptEvidence.offer.extra.nested.depth = 9;
+  }, TypeError);
+  assert.throws(() => {
+    err.attemptEvidence.offer.extra.nested.tags.push("c");
+  }, TypeError);
+});
+
+test("validatePaidOutput retains original attempt evidence when validator mutates nested fields", async () => {
+  const challengeBody = { x402Version: 1, accepts: [offer()] };
+  const fetchImpl = async (_u, init) => {
+    if (!init?.headers?.get?.("X-PAYMENT")) {
+      return new Response(JSON.stringify(challengeBody), { status: 402 });
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  let err;
+  try {
+    await fetchWithPayment("https://x/y", undefined, {
+      policy, fetchImpl,
+      signer: { address: "0xdeadbeef", signTransferWithAuthorization: async () => "0xsig" },
+      validatePaidOutput: (view) => {
+        view.attemptEvidence.offer.extra.name = "tampered";
+        view.attemptEvidence.authorization.from = "0xtampered";
+        throw new Error("hostile nested");
+      },
+    });
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err instanceof PaidOutputRejectedError);
+  assert.equal(err.attemptEvidence.offer.extra.name, "USDC");
+  assert.equal(err.attemptEvidence.authorization.from, "0xdeadbeef");
+  assert.equal(err.attemptEvidence.signature, "0xsig");
+});
+
+test("validatePaidOutput returns the original paid response on success", async () => {
+  const challengeBody = { x402Version: 1, accepts: [offer()] };
+  let paidResponse;
+  const fetchImpl = async (_u, init) => {
+    if (!init?.headers?.get?.("X-PAYMENT")) {
+      return new Response(JSON.stringify(challengeBody), { status: 402 });
+    }
+    paidResponse = new Response(JSON.stringify({ value: 1 }), {
+      status: 200,
+      statusText: "OK",
+    });
+    return paidResponse;
+  };
+  const res = await fetchWithPayment("https://x/y", undefined, {
+    policy, fetchImpl,
+    signer: { address: "0xdeadbeef", signTransferWithAuthorization: async () => "0xsig" },
+    validatePaidOutput: () => {},
+  });
+  assert.equal(res, paidResponse);
+  assert.equal(res.statusText, "OK");
+});
+
+test("validatePaidOutput is not invoked for a terminal second 402", async () => {
+  const challengeBody = { x402Version: 1, accepts: [offer()] };
+  let calls = 0;
+  let validated = false;
+  const fetchImpl = async (_u, init) => {
+    calls++;
+    if (!init?.headers?.get?.("X-PAYMENT")) {
+      return new Response(JSON.stringify(challengeBody), { status: 402 });
+    }
+    return new Response(JSON.stringify({ still: "gated" }), { status: 402 });
+  };
+  const res = await fetchWithPayment("https://x/y", undefined, {
+    policy, fetchImpl,
+    signer: { address: "0xdeadbeef", signTransferWithAuthorization: async () => "0xsig" },
+    validatePaidOutput: () => { validated = true; },
+  });
+  assert.equal(res.status, 402);
+  assert.equal(validated, false);
+  assert.equal(calls, 2);
+});
+
+test("validatePaidOutput is not invoked for a post-payment application error", async () => {
+  const challengeBody = { x402Version: 1, accepts: [offer()] };
+  let calls = 0;
+  let validated = false;
+  const fetchImpl = async (_u, init) => {
+    calls++;
+    if (!init?.headers?.get?.("X-PAYMENT")) {
+      return new Response(JSON.stringify(challengeBody), { status: 402 });
+    }
+    return new Response("server fault", { status: 500 });
+  };
+  const res = await fetchWithPayment("https://x/y", undefined, {
+    policy, fetchImpl,
+    signer: { address: "0xdeadbeef", signTransferWithAuthorization: async () => "0xsig" },
+    validatePaidOutput: () => { validated = true; },
+  });
+  assert.equal(res.status, 500);
+  assert.equal(await res.text(), "server fault");
+  assert.equal(validated, false);
+  assert.equal(calls, 2);
+});
+
+test("validatePaidOutput is not invoked for free initial success", async () => {
+  let validated = false;
+  const fetchImpl = async () => new Response("free", { status: 200 });
+  const res = await fetchWithPayment("https://x/y", undefined, {
+    policy, fetchImpl,
+    signer: { address: "0xabc", signTransferWithAuthorization: async () => "0x00" },
+    validatePaidOutput: () => { validated = true; },
+  });
+  assert.equal(await res.text(), "free");
+  assert.equal(validated, false);
+});
+
+test("validatePaidOutput is not invoked when policy refuses before payment", async () => {
+  let validated = false;
+  const fetchImpl = async () =>
+    new Response(JSON.stringify({ x402Version: 1, accepts: [offer({ maxAmountRequired: "99999" })] }), { status: 402 });
+  await assert.rejects(
+    fetchWithPayment("https://x/y", undefined, {
+      policy, fetchImpl,
+      signer: { address: "0xabc", signTransferWithAuthorization: async () => "0x00" },
+      validatePaidOutput: () => { validated = true; },
+    }),
+  );
+  assert.equal(validated, false);
 });

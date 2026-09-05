@@ -181,10 +181,113 @@ export function encodePaymentHeader(payload: unknown): string {
       (globalThis as any).Buffer.from(json, "utf8").toString("base64");
 }
 
+/**
+ * Evidence from the paid retry attempt: signed authorization and payment header
+ * sent on the retry. The library does not observe or verify on-chain settlement.
+ */
+export interface PaymentAttemptEvidence {
+  readonly x402Version: number;
+  readonly scheme: "exact";
+  readonly network: string;
+  readonly offer: Readonly<Offer>;
+  readonly authorization: Readonly<Authorization>;
+  readonly signature: string;
+  readonly paymentHeader: string;
+}
+
+function detachJsonValue(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((item) => detachJsonValue(item)));
+  }
+  const detached = Object.create(null) as Record<string, unknown>;
+  for (const key of Object.keys(value as object)) {
+    detached[key] = detachJsonValue((value as Record<string, unknown>)[key]);
+  }
+  return Object.freeze(detached);
+}
+
+function detachOffer(offer: Offer): Readonly<Offer> {
+  const extra =
+    offer.extra !== undefined
+      ? (detachJsonValue(offer.extra) as Readonly<Offer>["extra"])
+      : undefined;
+  return Object.freeze({
+    scheme: offer.scheme,
+    network: offer.network,
+    asset: offer.asset,
+    payTo: offer.payTo,
+    maxAmountRequired: offer.maxAmountRequired,
+    ...(offer.maxTimeoutSeconds !== undefined
+      ? { maxTimeoutSeconds: offer.maxTimeoutSeconds }
+      : {}),
+    ...(offer.resource !== undefined ? { resource: offer.resource } : {}),
+    ...(offer.description !== undefined ? { description: offer.description } : {}),
+    ...(extra !== undefined ? { extra } : {}),
+  });
+}
+
+function detachAuthorization(authorization: Authorization): Readonly<Authorization> {
+  return Object.freeze({ ...authorization });
+}
+
+function buildPaymentAttemptEvidence(args: {
+  x402Version: number;
+  network: string;
+  offer: Offer;
+  authorization: Authorization;
+  signature: string;
+  paymentHeader: string;
+}): PaymentAttemptEvidence {
+  return Object.freeze({
+    x402Version: args.x402Version,
+    scheme: "exact",
+    network: args.network,
+    offer: detachOffer(args.offer),
+    authorization: detachAuthorization(args.authorization),
+    signature: args.signature,
+    paymentHeader: args.paymentHeader,
+  });
+}
+
+/**
+ * Detached view of a successful paid application response. The body is a copy;
+ * helpers read it without touching the Response returned to the caller.
+ */
+export interface PaidOutputView {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: Uint8Array;
+  readonly attemptEvidence: PaymentAttemptEvidence;
+  text(): string;
+  json(): unknown;
+}
+
+export type ValidatePaidOutput = (view: PaidOutputView) => void | Promise<void>;
+
+/** Thrown when `validatePaidOutput` rejects the paid body. No retry occurs. */
+export class PaidOutputRejectedError extends Error {
+  readonly response: Response;
+  readonly attemptEvidence: PaymentAttemptEvidence;
+
+  constructor(message: string, response: Response, attemptEvidence: PaymentAttemptEvidence) {
+    super(message);
+    this.name = "PaidOutputRejectedError";
+    this.response = response;
+    this.attemptEvidence = attemptEvidence;
+  }
+}
+
 export interface PayOptions {
   policy: Policy;
   signer: Signer;
   fetchImpl?: typeof fetch;
+  /**
+   * Optional caller-owned validation of a successful paid application response.
+   * The library signs and retries; it does not verify on-chain settlement or
+   * response validity beyond what this hook checks.
+   */
+  validatePaidOutput?: ValidatePaidOutput;
 }
 
 /**
@@ -232,15 +335,64 @@ export async function fetchWithPayment(
     message: authorization,
   });
 
+  const x402Version = challenge.x402Version ?? 1;
   const header = encodePaymentHeader({
-    x402Version: challenge.x402Version ?? 1,
+    x402Version,
     scheme: "exact",
     network: picked.network,
     payload: { signature, authorization },
   });
   const headers = new Headers(init?.headers);
   headers.set("X-PAYMENT", header);
-  return f(input as RequestInfo, { ...init, headers });
+  const paid = await f(input as RequestInfo, { ...init, headers });
+  const validate = opts.validatePaidOutput;
+  if (!validate || !paid.ok) return paid;
+
+  const attemptEvidence = buildPaymentAttemptEvidence({
+    x402Version,
+    network: picked.network,
+    offer: picked,
+    authorization,
+    signature,
+    paymentHeader: header,
+  });
+
+  let body: Uint8Array;
+  try {
+    body = new Uint8Array(await paid.clone().arrayBuffer());
+  } catch {
+    throw new PaidOutputRejectedError(
+      "x402: paid response body is not readable",
+      paid,
+      attemptEvidence,
+    );
+  }
+
+  const viewBody = body.slice();
+  const headerRecord: Record<string, string> = {};
+  paid.headers.forEach((value, key) => {
+    headerRecord[key] = value;
+  });
+  Object.freeze(headerRecord);
+
+  const view: PaidOutputView = Object.freeze({
+    status: paid.status,
+    headers: headerRecord,
+    body: viewBody,
+    attemptEvidence,
+    text: () => new TextDecoder().decode(viewBody),
+    json: () => JSON.parse(new TextDecoder().decode(viewBody)),
+  });
+
+  try {
+    await validate(view);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "x402: paid application output rejected";
+    throw new PaidOutputRejectedError(message, paid, attemptEvidence);
+  }
+
+  return paid;
 }
 
 /**

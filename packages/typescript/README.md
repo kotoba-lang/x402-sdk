@@ -10,7 +10,7 @@ hide it but to get the four details right that are easy to get wrong.
 | package | install | tests |
 |---|---|---|
 | [`packages/go`](packages/go) | `go get github.com/kotoba-lang/x402-sdk/packages/go` | `go test ./...` — 12 |
-| [`packages/typescript`](packages/typescript) — `@com-kotobalabs/x402` | `npm i @com-kotobalabs/x402` | | `npm test` — 13 |
+| [`packages/typescript`](packages/typescript) — `@com-kotobalabs/x402` | `npm i @com-kotobalabs/x402` | | `npm test` — 24 |
 | [`packages/python`](packages/python) — `com-kotobalabs-x402` | `pip install com-kotobalabs-x402` once published | | `python -m unittest discover -s tests` — 16 |
 | [`packages/rust`](packages/rust) — `com-kotobalabs-x402` | `cargo add com-kotobalabs-x402` once published | `cargo test` — 11 |
 
@@ -64,6 +64,43 @@ const res = await fetchWithPayment(url, undefined, {
 
 **You do not need ETH.** The `exact` scheme has the facilitator submit the
 authorization and pay the gas, so a buyer holding only USDC can pay.
+
+## Optional paid-output validation
+
+The library signs a payment authorization, retries with `X-PAYMENT`, and returns
+the seller's HTTP response. It does **not** observe or verify on-chain
+settlement, guarantee paid delivery, or judge response validity beyond what you
+check. An optional hook runs only on a **successful** paid application response
+(HTTP 2xx after the retry). A terminal second `402`, any other non-success
+response, a free initial success, and pre-payment refusal are returned or thrown
+unchanged and never invoke the hook. Rejection throws without another request,
+credential, signature, authorization, retry, or payment.
+
+```ts
+import { fetchWithPayment, PaidOutputRejectedError } from "@com-kotobalabs/x402";
+
+try {
+  const res = await fetchWithPayment(url, undefined, {
+    policy: { networks: ["base-sepolia"],
+              assets: ["0x036CbD53842c5426634e7929541eC2318f3dCF7e"],
+              maxAmount: "5000" },
+    signer,
+    validatePaidOutput: (view) => {
+      const data = view.json() as { sku?: string };
+      if (data.sku !== "expected-sku") throw new Error("wrong sku");
+    },
+  });
+  // res is the original Response object from the paid retry
+} catch (err) {
+  if (err instanceof PaidOutputRejectedError) {
+    // err.response is the same original Response; err.attemptEvidence is frozen
+  }
+}
+```
+
+The validator receives a detached body copy and frozen payment-attempt evidence
+(offer, authorization, signature, payment header). Mutation does not alter the
+response or evidence attached to the error.
 
 ## Four things these libraries insist on
 
