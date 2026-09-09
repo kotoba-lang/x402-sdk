@@ -9,10 +9,15 @@ hide it but to get the four details right that are easy to get wrong.
 
 | package | install | tests |
 |---|---|---|
-| [`packages/go`](packages/go) | `go get github.com/kotoba-lang/x402-sdk/packages/go` | `go test ./...` — 12 |
-| [`packages/typescript`](packages/typescript) — `@com-kotobalabs/x402` | `npm i @com-kotobalabs/x402` | | `npm test` — 13 |
-| [`packages/python`](packages/python) — `com-kotobalabs-x402` | `pip install com-kotobalabs-x402` once published | | `python -m unittest discover -s tests` — 16 |
-| [`packages/rust`](packages/rust) — `com-kotobalabs-x402` | `cargo add com-kotobalabs-x402` once published | `cargo test` — 11 |
+| [`packages/go`](packages/go) | `go get github.com/kotoba-lang/x402-sdk/packages/go` | `go test ./...` |
+| [`packages/typescript`](packages/typescript) — [`@com-kotobalabs/x402`](https://www.npmjs.com/package/@com-kotobalabs/x402) | `npm i @com-kotobalabs/x402` | `npm test` |
+| [`packages/python`](packages/python) — [`com-kotobalabs-x402`](https://pypi.org/project/com-kotobalabs-x402/) | `pip install com-kotobalabs-x402` | `python -m unittest discover -s tests` |
+| [`packages/rust`](packages/rust) — [`com-kotobalabs-x402`](https://crates.io/crates/com-kotobalabs-x402) | `cargo add com-kotobalabs-x402` | `cargo test` |
+
+**All four are published.** Measured against the registries 2026-09-09, not
+read off this file: npm, PyPI and crates.io each answer for `0.1.0`, and the Go
+proxy answers `v0.1.0` at tag `packages/go/v0.1.0`. Every one was uploaded
+2026-09-01.
 
 Published under the `com-kotobalabs` organisation. `x402-sdk`, `x402` and
 `x402-client` were already taken across crates.io, npm and PyPI — checked
@@ -21,10 +26,14 @@ form says whose it is, which is more useful than a generic name anyway. npm
 carries it as a scope; PyPI and crates.io have none, so they carry it as a
 prefix.
 
-Go and Rust install by name today. Go modules are fetched from the repository, so
-a tag publishes them; npm and PyPI need a token created through a web login, and saying `npm i`
-works before anyone has pushed would be a claim about a registry rather than
-about this code.
+This paragraph used to say that npm and PyPI `need a token created through a
+web login`, and marked two of the four rows `once published`. That was true
+when it was written and stopped being true on 2026-09-01, when all four were
+pushed. It stayed here for eight days, and for those eight days the honest
+caution — *saying `npm i` works before anyone has pushed would be a claim about
+a registry rather than about this code* — was making the opposite error: a
+claim that the code was unavailable when it was not. **Check the registry, not
+the README.** Both directions of that sentence need the same evidence.
 
 The contract both implement is [`spec/wire.md`](spec/wire.md), transcribed from
 the facilitator that actually runs rather than from a document it might have
